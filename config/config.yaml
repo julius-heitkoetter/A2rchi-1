@@ -1,6 +1,10 @@
 global:
 
   DATA_PATH: "./data/"
+  ACCEPTED_FILES: 
+    -".txt"
+    -".html"
+    -".pdf"
 
 chains:
 

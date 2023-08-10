@@ -25,15 +25,19 @@ class DataManager():
         if not os.path.isdir(self.data_path+"vstore"):
                 os.mkdir(self.data_path+"vstore")
                 #!Could think of executing create_vectorstore (or update) here 
+
+        #Get current status of persistent vstore 
+        self.vstore = self.fetch_vectorstore()
+
         return
     
     def update_vectorstore(self):
         #!Could add some verbose in the process
 
         #Get current status of persistent vstore 
-        vstore = self.fetch_vectorstore()
-        files_in_vstore = [f["source"] for f in vstore.get()["metadatas"]]
-        ids_in_vstore = vstore.get()["ids"]
+        self.files_in_vstore = {f["source"] for f in self.vstore.get()["metadatas"]}
+        #self.ids_in_vstore = set(self.vstore.get()["ids"])
+        self.ids_in_vstore = {f["source"]:id for f, id in zip(self.vstore.get()["metadatas"], self.vstore.get()["ids"])}
 
         #scan data folder and obtain list of files in data. Assumes max depth = 1
         dirs = [self.data_path + dir for dir in os.listdir(self.data_path) if os.path.isdir(self.data_path + dir) and dir!="vstore"]
@@ -44,34 +48,43 @@ class DataManager():
                 files_in_data.append(filename)
 
         # control if files in vectorstore == files in data
-        if set(files_in_data)==set(files_in_vstore):
+        print("files in vectorstore are: ", self.files_in_vstore)
+        if set(files_in_data)==set(self.files_in_vstore):
             print("Vectorstore is up to date")
         else:
             text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=0)
             
             #remove obsolete files
-            files_to_remove = list(set(files_in_vstore) - set(files_in_data))
+            files_to_remove = list(set(self.files_in_vstore) - set(files_in_data))
+            print("Files to remove are: ", files_to_remove)
             if files_to_remove:
                 for file_to_remove in files_to_remove:
                     ids = []
-                    for id,f in zip(ids_in_vstore,files_in_vstore):
-                        if (f==file_to_remove): ids.append(id)
-                    vstore._collection.delete(ids) #remove all ids liked to the one file in the loop
-            
+                    #for id,f in zip(self.ids_in_vstore,self.files_in_vstore):
+                    #    if (f==file_to_remove): ids.append(id)
+                    for f in self.files_in_vstore:
+                        if (f==file_to_remove): ids.append(self.ids_in_vstore[f])
+                    self.vstore._collection.delete(ids) #remove all ids liked to the one file in the loop
+                    self.vstore._client.persist()
+
             #add new files to vectorstore
-            files_to_add = list(set(files_in_data) - set(files_in_vstore))
+            files_to_add = list(set(files_in_data) - set(self.files_in_vstore))
+            print("Files to add are: ", files_to_add)
             if files_to_add:
                 loaders = [self.loader(f) for f in files_to_add]
                 docs = []
                 for loader in loaders:
                     docs.extend(loader.load())
                 new_documents = text_splitter.split_documents(docs)
-                if new_documents: vstore.add_documents(new_documents) #
+                if new_documents: self.vstore.add_documents(new_documents) #
+
+                self.vstore.persist()
 
         return
     
     def loader(self,file_path):
          #return the document loader from a path, with the correct loader given the extension 
+         #IMPORTANT: if you add a file extension here, then add it to allowed files in global config
          _, file_extension = os.path.splitext(file_path)
          if file_extension == ".txt" : return TextLoader(file_path)
          elif file_extension == ".html" : return BSHTMLLoader(file_path)
@@ -107,12 +120,25 @@ class DataManager():
         """
         create a vectorstore instance from the path ./data/vstore
         """ 
-        vectorstore = Chroma(collection_name="OpenAI_Vstore", persist_directory=self.data_path+"vstore", embedding_function=OpenAIEmbeddings())
+        n_tries = 5
+        wait_time = 8
+
+        i=0
+        sucsess = False
+        while(i<n_tries and not sucsess):
+            try:
+                vectorstore = Chroma(collection_name="OpenAI_Vstore", persist_directory=self.data_path+"vstore", embedding_function=OpenAIEmbeddings())
+                sucsess = True
+            except RuntimeError as e:
+                print("Resource currently unavailable, trying again in " + str(wait_time) + " seconds")
+                print(e)
+                os.system("sleep " + str(wait_time))
+            i += 1
         return vectorstore
 
     def delete_vectorstore(self):
-        vstore=self.fetch_vectorstore()
-        vstore._collection.delete()
+        self.vstore=self.fetch_vectorstore()
+        self.vstore._collection.delete()
         return
     
     def remove_file(self,file_to_remove):

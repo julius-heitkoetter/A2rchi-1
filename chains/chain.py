@@ -55,7 +55,7 @@ class Chain() :
 
     def update_vectorstore(self):
         while not self.kill:
-            time.sleep(1000)
+            time.sleep(10)
             self.lock.acquire()
             self.vectorstore = self.dataManager.fetch_vectorstore()
             self.chain = BaseChain.from_llm(self.llm, self.vectorstore.as_retriever(), return_source_documents=True)

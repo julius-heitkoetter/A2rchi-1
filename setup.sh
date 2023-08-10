@@ -7,3 +7,4 @@ export PYTHONPATH="${PYTHONPATH}:${A2RCHI_BASE}/interfaces:${PYTHONPATH}:${A2RCH
 source $HOME/.cleo
 source $HOME/.imap
 source $HOME/.sender
+source $HOME/.salt
